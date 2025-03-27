@@ -14,3 +14,22 @@
 :customcss: css/custom.css
 :icons: font
 :title-slide-background-image: pexels-pixabay-327049.jpg
+
+== code
+
+[source,java]
+----
+System.out.println("Hello");
+----
+
+== diagrams
+
+[graphviz]
+----
+digraph{
+    A->B
+    C->D
+    D->B
+    B->C
+}
+----
