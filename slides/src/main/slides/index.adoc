@@ -1,4 +1,5 @@
-= Slides bootstrap
+= Lock, monitors and atomics
+things you wish didn't know about JVM concurrency
 :idprefix:
 :stem: asciimath
 :backend: html
@@ -9,27 +10,617 @@
 :revealjs_controls: false
 :revealjs_width: 1920
 :revealjs_height: 1080
-:revealjs_plugins: src/main/slides/revealjs-plugins.js
 :imagesdir: images
 :customcss: css/custom.css
-:icons: font
-:title-slide-background-image: pexels-pixabay-327049.jpg
+:title-slide-background-image: robots-dragon-castle.jpg
+:mmdc: node_modules/.bin/mmdc
 
-== code
+== Jarosław Pałka
+
+staff engineer/team lead/benchmarking team at Neo4j (a graph database)
+
+over 20 years with JVM, +
+since early days of no native threads and, +
+no JIT and slow as hell GC
+
+speaker, coder, architect
+
+== !
+
+This presentation is inspired by months long project to understand Neo4j performance on +
+ARM CPUs (Graviton2 and Graviton3)
+
+https://aws.amazon.com/blogs/apn/give-your-graph-workload-a-cost-performance-boost-with-neo4j-and-aws-graviton/[Give Your Graph Workload a Cost-Performance Boost with Neo4j and AWS Graviton]
+
+during this journey I have learned a lot of things +
+I didn't want to know about +
+concurrency and especially mutual exclusion
+
+=== !
+
+I need to say thanks to few, without whom this presentation wouldn't be possible:
+
+* Neo4j, for courage and trust to give me this project
+* Benchmarking team, for all tooling and infrastructure, and as well keeping the good work as I was hiding in the dungeons looking for dragons
+* Stu Moore, benchmarking team Product Manager, for constant support, good discussions and faith 
+* and last, but not least, Michał Jonko for hours spent with me looking at flamegraphs, writing microbenchmarks and chasing JVM bugs
+
+== mutual exclusion
+
+[quote,Wikipedia]
+In computer science, mutual exclusion is a property of concurrency control, which is instituted for the purpose of preventing race conditions. It is the requirement that one thread of execution never enters a critical section while a concurrent thread of execution is already accessing said critical section, which refers to an interval of time during which a thread of execution accesses a shared resource or shared memory.
+
+=== !
+
+NOTE: for the sake of simplicity I will skip all discussions about memory orderings, memory fences and Java Memory Model
+
+== !
+
+[,java]
+----
+i++; // not thread safe
+
+synchronized(this){
+    i++;
+}
+
+var lock = new ReentrantLock();
+lock.lock();
+i++
+lock.unlock();
+
+var atomic = new AtomicInteger();
+atomic.getAndInc();
+----
+
+=== !
+
+Is there any difference?
+
+=== what is hiding in flamegraphs
+
+http://localhost:35729/flamegraphs/pl.symentis.jvm.microbenchmarks.counters.SynchronizedCounterBenchmark.counter-Throughput/flame-cpu-forward.html[synchronized,window=_blank] +
+http://localhost:35729/flamegraphs/pl.symentis.jvm.microbenchmarks.counters.ReentrantReadWriteCounterBenchmark.counter-Throughput/flame-cpu-forward.html[ReentranReadWriteLock,window=_blank] +
+http://localhost:35729/flamegraphs/pl.symentis.jvm.microbenchmarks.counters.AtomicCounterBenchmark.counter-Throughput/flame-cpu-forward.html[AtomicInteger,window=_blank]
+
+=== performance?
+
+will comeback to more details later
+
+== synchronized
+
+this is the oldest mutual exclusion mechanism in JVM, +
+all of it is implemented in HotSpot code
+
+=== !
+
+[quote,OpenJDK Wiki - Synchronization and Object Locking]
+every object is preceded by a class pointer and a header word. +
+The header word, which stores the identity hash code as well as +
+age and marking bits for generational garbage collection, +
+is also used to implement a thin lock scheme 
+
+=== thin locking scheme?
+
+image::https://media.giphy.com/media/lXu72d4iKwqek/giphy.gif[background]
+
+=== !
+
+sometimes also referred to as fast and slow path locking
+
+OpenJDK has two locking mechanisms for `synchronized`, +
+one that is using on-stack lock record and compare-and-swap +
+(aka thin lock)
+
+second, which uses `ObjectMonitor` and native monitors +
+(aka fat lock)
+
+=== but, why?
+
+[quote,OpenJDK Wiki - Synchronization and Object Locking]
+Thin locks are a lot cheaper than inflated locks, but their performance suffers from the fact that every compare-and-swap operation must be executed atomically on multi-processor machines, although most objects are locked and unlocked only by one particular thread
+
+=== !
+
+image::https://wiki.openjdk.org/download/attachments/11829266/Synchronization.gif?version=4&modificationDate=1208918680000&api=v2[width=1000]
+
+=== !
+
+[quote,OpenJDK Wiki - Synchronization and Object Locking]
+The right-hand side of the figure illustrates the standard locking process. As long as an object is unlocked, the last two bits have the value 01. When a method synchronizes on an object, the header word and a pointer to the object are stored in a lock record within the current stack frame. Then the VM attempts to install a pointer to the lock record in the object's header word via a compare-and-swap operation. If it succeeds, the current thread afterwards owns the lock. Since lock records are always aligned at word boundaries, the last two bits of the header word are then 00 and identify the object as being locked.
+
+=== !
+
+[quote,OpenJDK Wiki - Synchronization and Object Locking]
+If the compare-and-swap operation fails because the object was locked before, the VM first tests whether the header word points into the method stack of the current thread. In this case, the thread already owns the object's lock and can safely continue its execution. For such a recursively locked object, the lock record is initialized with 0 instead of the object's header word. Only if two different threads concurrently synchronize on the same object, the thin lock must be inflated to a heavyweight monitor for the management of waiting threads.
+
+=== inflated locks.equals(fat locks) == true
+
+when JVM fails to compare-and-swap on-stack lock record into object header +
+it will create VM struct called ObjectMonitor
+
+=== !
+
+[quote,OpenJDK code]
+The ObjectMonitor class implements the heavyweight version of a
+JavaMonitor. The lightweight BasicLock/stack lock version has been
+inflated into an ObjectMonitor. This inflation is typically due to
+contention or use of Object.wait().
+WARNING: This is a very sensitive and fragile class. DO NOT make any
+changes unless you are fully aware of the underlying semantics.
+
+=== This is a very sensitive and fragile class. DO NOT make any changes
+
+=== why it is so complex?
+
+in case object's is not contended by more than one thread, +
+we only execute lightweight locking,  +
+so we minimized impact of _synchronized_
+
+=== !
+
+there are few components that take part in this weird dance:
+
+* _ObjectSynchronizer_, an entry point for interpreter and compiler code
+* _PlatformMonitor_, which contains OS dependant synchronization primitives
+* and ObjectMonitor itself
+
+=== and object's mark word
+
+The mark can be in one of the following states:
+
+Inflated:: just return ObjectMonitor
+Stack-locked:: coerce it to inflated, aka we have a fast lock and we need to inflate it
+Inflating:: busy wait for conversion to complete, other thread just started to inflate BasicLock into ObjectMonitor
+Neutral:: aggressively inflate the object
+Biased:: illegal, we should never see this, we talk about it later
+
+=== why it is so complex?
+
+* remember, garbage collection (and especially safe-pointing) can happen at any time.
+* GC stores object's age in mark word (aka header), and when we CAS ObjectMonitor into
+mark word we don't want to loose that information
+* there is also one more thing in object header, identity hashcode ;) 
+
+=== !
+
+when lock is contended, _BasicLock_ is inflated
+
+* we create ObjectMonitor, 
+* associate ObjectMonitor with Java object, 
+* install pointer to ObjectMonitor into mark word
+* add ObjectMonitor to global (object synchronizer) in use list (free list) 
+
+=== ObjectMonitor::enter
+
+* first we try to compare-and-swap NULL object monitor owner into current JavaThread (this is a case when object is not locked)
+* if compare-and-swap fails, and current owner thread is the same as current thread we increment number of recursions (this is needed to support reentrancy)
+* otherwise, we've encountered genuine contention
+
+=== !
+
+* when try to spin fails, enqueue in _ObjectMonitor_ CXQ queue and park current thread
+* one of the contending threads will become the designated "Responsible" thread.
+* The Responsible thread uses a timed park instead of a normal indefinite park operation -- it periodically wakes and checks for and recovers from potential stranding
+* Stranding is form of progress failure where the monitor is unlocked but all the contending threads remain parked
+
+=== !
+
+Thread parking is delegated to _JavaThread_ +
+which is associated with platform specific implementation 
+
+=== !
+
+what happens to _ObjectMonitor_ when we exit synchronized block?
+
+* decrement recurrence counter
+* if zero then we unlock, first by clearing reference between _ObjectMonitor._owner_ and object
+* if list of waiting threads in this object monitor is empty we exit,
+* normally the exiting thread is responsible for ensuring succession, but if other successors are ready or other entering threads are spinning then this thread can simply store _NULL_ into __owner_ and exit without waking a successor
+
+=== !
+
+_ObjectMonitors_ are not Java objects, so they will not be cleaned up by garbage collector and JVM needs to take care of them.
+
+there is mechanism called async monitor deflation
+
+
+=== first problem we have spotted
+
+https://bugs.openjdk.org/browse/JDK-8305994[Guarantee eventual async monitor deflation]
+
+=== things have changed since JDK 21
+
+https://bugs.openjdk.org/browse/JDK-8291555[Implement alternative fast-locking scheme] +
+https://bugs.openjdk.org/browse/JDK-8305999[Add experimental -XX:LockingMode flag]
+
+=== !
+
+in general this removes stack locking (using stack lock record) +
+this is was introduced to support compressed object headers +
+aka Project Lilliput
+
+=== and object's mark word
+
+The mark can be in one of the following states:
+
+* locked
+* unlocked
+* and monitor
+
+=== things have changed since JDK 24
+
+https://bugs.openjdk.org/browse/JDK-8334496[Deprecate LockingMode option, along with LM_LEGACY and LM_MONITOR]
+
+to be removed in JDK 26
+
+=== !
+
+there are few optimizations implemented in HotSpot
+
+* adaptive locking
+* biased locking
+* lock coarsening
+* lock elision
+
+=== adaptive locking
+
+* first thing that happens when we fail to CAS owner and lock is contented is we try to spin on a lock, in case lock becomes unlocked
+* rather than just blocking until notified that the change has occurred. The "adaptive" part comes from the policy decisions that control how long the thread will spin until eventually deciding to block.
+
+=== biased locking
+
+[quote, JEP 374: Deprecate and Disable Biased Locking]
+Biased locking is an optimization technique used in the HotSpot Virtual Machine to reduce the overhead of uncontended locking. It aims to avoid executing a compare-and-swap atomic operation when acquiring a monitor by assuming that a monitor remains owned by a given thread until a different thread tries to acquire it. The initial lock of the monitor biases the monitor towards that thread, avoiding the need for atomic instructions in subsequent synchronized operations on the same object. When many threads perform many synchronized operations on objects used in a single-threaded fashion, biasing the locks has historically led to significant performance improvements over regular locking techniques.
+
+=== !
+
+Biased locking is now deprecated and disabled by default since JDK 15
+
+=== !
+
+image::https://media.giphy.com/media/iVWO03WjTMbWU/giphy.gif[background]
+
+=== !
+
+[quote, JEP 374: Deprecate and Disable Biased Locking]
+The performance gains seen in the past are far less evident today. Many applications that benefited from biased locking are older, legacy applications that use the early Java collection APIs, which synchronize on every access (e.g., Hashtable and Vector). Newer applications generally use the non-synchronized collections (e.g., HashMap and ArrayList), introduced in Java 1.2 for single-threaded scenarios, or the even more-performant concurrent data structures, introduced in Java 5, for multi-threaded scenarios.
+
+=== !
+
+[quote, JEP 374: Deprecate and Disable Biased Locking]
+Biased locking introduced a lot of complex code into the synchronization subsystem and is invasive to other HotSpot components as well. This complexity is a barrier to understanding various parts of the code and an impediment to making significant design changes within the synchronization subsystem. To that end we would like to disable, deprecate, and eventually remove support for biased locking.
+
+=== accidental complexity
+
+https://shipilev.net/jvm/objects-inside-out/#_observation_identity_hashcode_disables_biased_locking[Java Objects Inside Out
+]
+
+[quote,Identity Hashcode Disables Biased Locking]
+biased locking works on a fresh object, but the moment we ask its hashCode, we end up computing its identity hash code (since there is no override for Object.hashCode), which installs the computed value in the mark word. Subsequent locks could only displace the identity hash code value temporarily, but it would be there as soon as (non-biased) locking is released. Since there is no way to store biased locking information in mark word anymore, it does not work for that object from this moment on.
+
+=== lock elision
 
 [source,java]
 ----
-System.out.println("Hello");
-----
 
-== diagrams
+private final Object lock = new Object();
 
-[graphviz]
-----
-digraph{
-    A->B
-    C->D
-    D->B
-    B->C
+public void lockElision() {
+    synchronized (new Object()) {
+        x++;
+    }
+}
+
+public void lockElision() {
+    synchronized (lock) {
+        x++;
+    }
 }
 ----
+
+=== !
+
+all this is possible thanks to escape analysis capabilities of HotSpot
+
+thanks to this, JVM can remove locking if object doesn't globally escape
+
+=== lock coarsening
+
+[source,java]
+----
+private final Object lock = new Object();
+
+public void lockCoarsening() {
+    synchronized (lock) {
+        x++;
+    }
+
+    synchronized (lock) {
+        x++;
+    }
+
+}
+----
+
+=== !
+
+Hotspot does https://shipilev.net/jvm/anatomy-quarks/1-lock-coarsening-for-loops/[lock coarsening optimizations] that can effectively merge several adjacent locking blocks, thus reducing the locking overhead
+
+[source,java]
+----
+private final Object lock = new Object();
+
+public void lockCoarsening() {
+    synchronized (lock) {
+        x++;
+    }
+
+    synchronized (lock) {
+        x++;
+    }
+
+}
+----
+
+== locks
+
+Welcome to JSR 166
+
+[quote,Javadocs]
+Lock implementations provide more extensive locking
+operations than can be obtained using {@code synchronized} methods
+and statements.  They allow more flexible structuring, may have
+quite different properties, and may support multiple associated
+Condition objects.
+
+implemented as mix of Java and native code
+
+=== !
+
+You can think about it as all of the magic from previous section reimplemented from JVM code into Java code
+
+* LockSupport, a gateway to OS dependent synchronization primitives (through Unsafe)
+* AbstractQueuedSynchronizer, provides a framework for implementing blocking locks and related synchronizes (semaphores, events, etc) that rely on first-in-first-out (FIFO) wait queues.
+
+=== LockSupport
+
+this class calls native methods (through _Unsafe_ class) to park and unpark threads
+
+as these mechanisms rely on operating system, Unsafe delegates them to _Parker_ (and _PlatformParker_) implementations
+which are per-thread support classes inside HotSpot
+
+like in case of Linux, HotSpot uses implementation based on system pthread library and _pthread_cond_wait_ call (which makes use of _futex_ syscall)
+
+
+=== second problem we have spotted
+
+https://bugs.openjdk.org/browse/JDK-8305670[Performance regression in LockSupport.unpark with lots of idle threads]
+
+=== AbstractQueuedSynchronizer
+
+\... and its sister class _AbstractQueuedLongSynchronizer_ serve as foundation for implementation of other concurrency primitives as locks, semaphores and etc.
+
+* similar to _synchronized_ it uses a queue of "waiters" (threads or conditions)
+* and _volatile int state_ field, which with help of compare-and-exchange operations (yeap, atomics, it is coming) can model different types of constructs
+
+=== non-reentrant mutual exclusion lock
+
+[source,java]
+----
+class Mutex implements Lock, java.io.Serializable {
+ 
+    // Our internal helper class
+    private static class Sync extends AbstractQueuedSynchronizer {
+      // Acquires the lock if state is zero
+      public boolean tryAcquire(int acquires) {
+        assert acquires == 1; // Otherwise unused
+        if (compareAndSetState(0, 1)) {
+          setExclusiveOwnerThread(Thread.currentThread());
+          return true;
+        }
+        return false;
+      }
+ 
+      // Releases the lock by setting state to zero
+      protected boolean tryRelease(int releases) {
+        assert releases == 1; // Otherwise unused
+        if (!isHeldExclusively())
+          throw new IllegalMonitorStateException();
+        setExclusiveOwnerThread(null);
+        setState(0);
+        return true;
+      }
+    }
+
+    // The sync object does all the hard work. We just forward to it.
+    private final Sync sync = new Sync();
+
+    public void lock() { sync.acquire(1); }
+    public void unlock() { sync.release(1); }
+
+}
+----
+
+=== !
+
+what you need is to provide in minimal implementation _tryAcquire_ and _tryRelease_ +
+and _AbstractQueuedSynchronizer_ will take care for the rest of magic
+
+=== other properties of JSR-166 locks
+
+* fairness
+* multiple conditions
+* _tryLock_ and _lockInterruptibly_
+
+=== fairness
+
+[quote,Javadocs]
+... accepts an optional fairness parameter. When set true, under contention, locks favor granting access to the longest-waiting thread. Otherwise this lock does not guarantee any particular access order. Programs using fair locks accessed by many threads may display lower overall throughput (i.e., are slower; often much slower) than those using the default setting, but have smaller variances in times to obtain locks and guarantee lack of starvation. Note however, that fairness of locks does not guarantee fairness of thread scheduling. Thus, one of many threads using a fair lock may obtain it multiple times in succession while other active threads are not progressing and not currently holding the lock.
+
+
+=== multiple conditions
+
+[source,java]
+----
+class BoundedBuffer {
+   final Lock lock = new ReentrantLock();
+   final Condition notFull  = lock.newCondition(); 
+   final Condition notEmpty = lock.newCondition(); 
+
+   final Object[] items = new Object[100];
+   int putptr, takeptr, count;
+
+   public void put(Object x) throws InterruptedException {
+     lock.lock();
+     try {
+       while (count == items.length)
+         notFull.await(); // <-- why in a loop? 
+       items[putptr] = x;
+       if (++putptr == items.length) putptr = 0;
+       ++count;
+       notEmpty.signal();
+     } finally {
+       lock.unlock();
+     }
+   }
+
+   public Object take() throws InterruptedException {
+     lock.lock();
+     try {
+       while (count == 0)
+         notEmpty.await();
+       Object x = items[takeptr];
+       if (++takeptr == items.length) takeptr = 0;
+       --count;
+       notFull.signal();
+       return x;
+     } finally {
+       lock.unlock();
+     }
+   }
+ } 
+----
+
+== atomics
+
+atomics are concurrency primitives, +
+implemented in hardware 
+
+you can think about them as most granular locks, +
+which protect access to a single variable only.
+
+implemented in HotSpot as mix of Java and intrinsics code
+
+=== !
+
+of course, as always in JVM if underlying hardware doesn't support atomic operations +
+it is implemented in Java using locks to preserve semantics
+
+=== example
+
+[code,java]
+----
+i++; // it is not that simple
+     // first you read i intro register
+     // then you increment it
+     // then you write it back
+----
+
+=== sneak peak into Intel ISA
+
+To prevent another processor from accessing the memory during a read-modify-write memory operation, +
+insert a LOCK prefix in front of the instruction +
+This causes the read-modify-write sequence to occur atomically.
+
+[code,nasm]
+----
+LOCK INC [value]    ; increment atomically
+----
+
+Any memory operation can be prefixed with a LOCK, +
+and the processor will prevent any other processors +
+from accessing the memory for the duration of that instruction.
+
+=== !
+
+as you can see we can lock at CPU level on a single memory location
+
+there is also set of specialized instructions
+
+[code,java]
+----
+int tmp = i;
+i = j;
+return tmp
+----
+
+also know as exchange (or swap) operation
+
+=== or compare-and-exchange
+
+[code,java]
+----
+if(value==old){
+    value=new;
+}
+return old;
+----
+
+known also CMPXCHG instruction
+
+=== is it any useful?
+
+all of these operations are exposed as Atomic* methods in Java
+
+they serve as a foundation of lock-free algorithms and data structures +
+(some day I will make a 3 hours long presentation about it, someday)
+
+WARNING: lock-free doesn't mean faster
+
+https://www.youtube.com/watch?v=ZQFzMfHIxng&t=3727s[CppCon 2017: Fedor Pikus “C++ atomics, from basic to advanced. What do they really do?”]
+
+[role="highlight_section_title"]
+== I couldn't care less
+
+image::https://media.giphy.com/media/qiWONQdjw33xK/giphy.gif[background]
+
+=== here comes the law
+
+Universal scalability law
+
+image::https://wso2.com/files/Picture10.png[]
+
+image::https://wso2.com/files/Picture8.png[]
+
+=== !
+
+when working with concurrent algorithms +
+the time it takes to execute serial parts of your code +
+is your biggest enemy
+
+== performance
+
+=== !
+
+image::https://docs.google.com/spreadsheets/d/e/2PACX-1vTWE6bq5XfcNo8DXiWlh0tlj-krYq60S1frkGqAPNl6MP7B_GoISIwmqXHfPQhSiL2_2_y6XXgL-nZQ/pubchart?oid=338863719&format=image[width=1000]
+
+=== !
+
+image::https://docs.google.com/spreadsheets/d/e/2PACX-1vTWE6bq5XfcNo8DXiWlh0tlj-krYq60S1frkGqAPNl6MP7B_GoISIwmqXHfPQhSiL2_2_y6XXgL-nZQ/pubchart?oid=136729528&format=image[width=1000]
+
+=== !
+
+image::https://docs.google.com/spreadsheets/d/e/2PACX-1vTWE6bq5XfcNo8DXiWlh0tlj-krYq60S1frkGqAPNl6MP7B_GoISIwmqXHfPQhSiL2_2_y6XXgL-nZQ/pubchart?oid=351011215&format=image[width=1000]
+
+=== !
+
+image::https://docs.google.com/spreadsheets/d/e/2PACX-1vTWE6bq5XfcNo8DXiWlh0tlj-krYq60S1frkGqAPNl6MP7B_GoISIwmqXHfPQhSiL2_2_y6XXgL-nZQ/pubchart?oid=1276020534&format=image[width=1000]
+
+=== don't trust me
+
+it is just benchmark to prove I am always right
+
+== !
+
+image::https://media.giphy.com/media/3oz8xIsloV7zOmt81G/giphy.gif[background]

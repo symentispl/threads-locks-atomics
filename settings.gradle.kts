@@ -1,3 +1,3 @@
-rootProject.name = "slides-bootstrap"
+rootProject.name = "threads-locks-and-atomics"
 include("slides")
 include("code")

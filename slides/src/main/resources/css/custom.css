@@ -1,1 +1,23 @@
-@import "../plugins/copycode/plugin/copycode/copycode.css";
+.highlight_section_title h2 {
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+}
+
+.reveal pre code {
+  display: block;
+  max-height: 800px; /* Adjust the height as needed */
+  overflow: auto;    /* Add scrollbars if content exceeds the height */
+}
+
+.reveal blockquote {
+  width : 90%;
+}
+
+section.white.background {
+  background-color: white;
+}
+
+section.title {
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+}
