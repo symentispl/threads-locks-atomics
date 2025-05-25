@@ -519,7 +519,7 @@ it is implemented in Java using locks to preserve semantics
 
 === example
 
-[code,java]
+[source,java]
 ----
 i++; // it is not that simple
      // first you read i intro register
@@ -533,7 +533,7 @@ To prevent another processor from accessing the memory during a read-modify-writ
 insert a LOCK prefix in front of the instruction +
 This causes the read-modify-write sequence to occur atomically.
 
-[code,nasm]
+[source,nasm]
 ----
 LOCK INC [value]    ; increment atomically
 ----
@@ -548,7 +548,7 @@ as you can see we can lock at CPU level on a single memory location
 
 there is also set of specialized instructions
 
-[code,java]
+[source,java]
 ----
 int tmp = i;
 i = j;
@@ -559,7 +559,7 @@ also know as exchange (or swap) operation
 
 === or compare-and-exchange
 
-[code,java]
+[source,java]
 ----
 if(value==old){
     value=new;
@@ -603,19 +603,171 @@ is your biggest enemy
 
 === !
 
-image::https://docs.google.com/spreadsheets/d/e/2PACX-1vTWE6bq5XfcNo8DXiWlh0tlj-krYq60S1frkGqAPNl6MP7B_GoISIwmqXHfPQhSiL2_2_y6XXgL-nZQ/pubchart?oid=338863719&format=image[width=1000]
+[gnuplot, benchmark-comparison, png]
+----
+# Set the output to be a PNG image
+set terminal png enhanced font "arial,10" size 1200,800
+
+# Set the style for the bars
+set style data histograms
+set style fill solid 1.0 border lt -1
+set boxwidth 0.8 relative
+
+# Set the title and labels
+set title "1 reader 1 writer synchronization performance comparison (ops/s)"
+set xlabel "Synchronization Method"
+set xtics font ", 14"
+set ylabel "Operations per second (ops/s)"
+set format y "%.0f"
+
+# Set the y-axis to use scientific notation and start from 0
+set yrange [0:650000000]
+
+# Remove the legend
+unset key
+
+# Set the grid for better readability
+set grid y
+
+# Add value labels on top of bars
+set style textbox opaque noborder
+set style data histogram
+set style histogram cluster gap 1
+
+# Plot the data
+plot "-" using 2:xtic(1) with histogram title "ops/s", \
+     "" using 0:2:2 with labels offset 0,1 notitle
+"atomic"           344322754
+"read-write lock"  46591481
+"synchronized"     29531010
+e
+----
 
 === !
 
-image::https://docs.google.com/spreadsheets/d/e/2PACX-1vTWE6bq5XfcNo8DXiWlh0tlj-krYq60S1frkGqAPNl6MP7B_GoISIwmqXHfPQhSiL2_2_y6XXgL-nZQ/pubchart?oid=136729528&format=image[width=1000]
+[gnuplot, benchmark-comparison, png]
+----
+# Set the output to be a PNG image
+set terminal png enhanced font "arial,10" size 1200,800
+
+# Set the style for the bars
+set style data histograms
+set style fill solid 1.0 border lt -1
+set boxwidth 0.8 relative
+
+# Set the title and labels
+set title "4 reader 4 writer synchronization performance comparison (ops/s)"
+set xlabel "Synchronization Method"
+set xtics font ", 14"
+set ylabel "Operations per second (ops/s)"
+set format y "%.0f"
+
+# Set the y-axis to use scientific notation and start from 0
+set yrange [0:650000000]
+
+# Remove the legend
+unset key
+
+# Set the grid for better readability
+set grid y
+
+# Add value labels on top of bars
+set style textbox opaque noborder
+set style data histogram
+set style histogram cluster gap 1
+
+# Plot the data
+plot "-" using 2:xtic(1) with histogram title "ops/s", \
+     "" using 0:2:2 with labels offset 0,1 notitle
+"atomic"           548232814
+"read-write lock"  22300767
+"synchronized"     7379561
+e
+----
 
 === !
 
-image::https://docs.google.com/spreadsheets/d/e/2PACX-1vTWE6bq5XfcNo8DXiWlh0tlj-krYq60S1frkGqAPNl6MP7B_GoISIwmqXHfPQhSiL2_2_y6XXgL-nZQ/pubchart?oid=351011215&format=image[width=1000]
+[gnuplot, benchmark-comparison, png]
+----
+# Set the output to be a PNG image
+set terminal png enhanced font "arial,10" size 1200,800
+
+# Set the style for the bars
+set style data histograms
+set style fill solid 1.0 border lt -1
+set boxwidth 0.8 relative
+
+# Set the title and labels
+set title "7 reader 1 writer synchronization performance comparison (ops/s)"
+set xlabel "Synchronization Method"
+set xtics font ", 14"
+set ylabel "Operations per second (ops/s)"
+set format y "%.0f"
+
+# Set the y-axis to use scientific notation and start from 0
+set yrange [0:650000000]
+
+# Remove the legend
+unset key
+
+# Set the grid for better readability
+set grid y
+
+# Add value labels on top of bars
+set style textbox opaque noborder
+set style data histogram
+set style histogram cluster gap 1
+
+# Plot the data
+plot "-" using 2:xtic(1) with histogram title "ops/s", \
+     "" using 0:2:2 with labels offset 0,1 notitle
+"atomic"           127276718
+"read-write lock"  31113465
+"synchronized"     6337450
+e
+----
 
 === !
 
-image::https://docs.google.com/spreadsheets/d/e/2PACX-1vTWE6bq5XfcNo8DXiWlh0tlj-krYq60S1frkGqAPNl6MP7B_GoISIwmqXHfPQhSiL2_2_y6XXgL-nZQ/pubchart?oid=1276020534&format=image[width=1000]
+[gnuplot, benchmark-comparison, png]
+----
+# Set the output to be a PNG image
+set terminal png enhanced font "arial,10" size 1200,800
+
+# Set the style for the bars
+set style data histograms
+set style fill solid 1.0 border lt -1
+set boxwidth 0.8 relative
+
+# Set the title and labels
+set title "1 reader 7 writer synchronization performance comparison (ops/s)"
+set xlabel "Synchronization Method"
+set xtics font ", 14"
+set ylabel "Operations per second (ops/s)"
+set format y "%.0f"
+
+# Set the y-axis to use scientific notation and start from 0
+set yrange [0:650000000]
+
+# Remove the legend
+unset key
+
+# Set the grid for better readability
+set grid y
+
+# Add value labels on top of bars
+set style textbox opaque noborder
+set style data histogram
+set style histogram cluster gap 1
+
+# Plot the data
+plot "-" using 2:xtic(1) with histogram title "ops/s", \
+     "" using 0:2:2 with labels offset 0,1 notitle
+"atomic"           1512204949
+"read-write lock"  9635152
+"synchronized"     11073033
+e
+----
 
 === don't trust me
 

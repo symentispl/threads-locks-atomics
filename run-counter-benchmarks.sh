@@ -25,6 +25,8 @@ echo "JAR: $JAR_PATH"
 echo "Thread configurations: ${THREAD_CONFIGS}"
 echo "=========================================="
 
+./gradlew clean jmhJar
+
 for config in "${THREAD_CONFIGS[@]}"; do
     echo ""
     echo "Running with thread configuration: $config"
@@ -32,14 +34,14 @@ for config in "${THREAD_CONFIGS[@]}"; do
     
     # Create filename with thread configuration
     config_name=$(echo "$config" | tr ',' '-')
-    output_file="$REPORTS_DIR/counter-benchmark-threads-${config_name}.json"
+    output_file="$REPORTS_DIR/counter-benchmark-threads-${config_name}.csv"
     
     java -jar "$JAR_PATH" \
-        -i 5 \
-        -wi 3 \
+        -i 1 \
+        -wi 1 \
         -f 1 \
         -tg "$config" \
-        -rf json \
+        -rf csv \
         -rff "$output_file" \
         "$BENCHMARK_PATTERN"
     
