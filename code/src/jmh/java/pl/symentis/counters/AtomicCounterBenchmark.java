@@ -29,9 +29,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package pl.symentis.jvm.microbenchmarks.counters;
+package pl.symentis.counters;
 
 import org.openjdk.jmh.annotations.*;
+import pl.symentis.counters.AtomicCounter;
 
 @State(Scope.Benchmark)
 public class AtomicCounterBenchmark {

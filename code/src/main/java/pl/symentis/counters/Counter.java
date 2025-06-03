@@ -1,4 +1,4 @@
-package pl.symentis.jvm.microbenchmarks.counters;
+package pl.symentis.counters;
 
 public class Counter {
     private int counter;

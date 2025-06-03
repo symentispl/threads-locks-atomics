@@ -4,9 +4,8 @@ things you wish didn't know about JVM concurrency
 :stem: asciimath
 :backend: html
 :source-highlighter: highlightjs
-:highlightjs-style: github
 :revealjs_history: true
-:revealjs_theme: night
+:revealjs_theme: serif
 :revealjs_controls: false
 :revealjs_width: 1920
 :revealjs_height: 1080
@@ -27,7 +26,7 @@ speaker, coder, architect
 
 == !
 
-This presentation is inspired by months long project to understand Neo4j performance on +
+This workshop is inspired by months long project to understand Neo4j performance on +
 ARM CPUs (Graviton2 and Graviton3)
 
 https://aws.amazon.com/blogs/apn/give-your-graph-workload-a-cost-performance-boost-with-neo4j-and-aws-graviton/[Give Your Graph Workload a Cost-Performance Boost with Neo4j and AWS Graviton]
@@ -603,7 +602,7 @@ is your biggest enemy
 
 === !
 
-[gnuplot, benchmark-comparison, png]
+[gnuplot, benchmark-comparison, png,width=1200]
 ----
 # Set the output to be a PNG image
 set terminal png enhanced font "arial,10" size 1200,800

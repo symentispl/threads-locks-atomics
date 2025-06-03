@@ -29,17 +29,18 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package pl.symentis.jvm.microbenchmarks.counters;
+package pl.symentis.counters;
 
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Group;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
+import pl.symentis.counters.SynchronizedCounter;
 
 @State(Scope.Benchmark)
-public class CounterBenchmark {
+public class SynchronizedCounterBenchmark {
 
-    private Counter counter = new Counter();
+    private SynchronizedCounter counter = new SynchronizedCounter();
 
     @Benchmark
     @Group("counter")

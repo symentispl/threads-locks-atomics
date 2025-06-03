@@ -1,4 +1,4 @@
-package pl.symentis.jvm.microbenchmarks.locks;
+package pl.symentis.locks;
 
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Fork;
