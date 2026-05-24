@@ -13,6 +13,7 @@ things you wish didn't know about JVM concurrency
 :customcss: css/custom.css
 :title-slide-background-image: robots-dragon-castle.jpg
 :mmdc: node_modules/.bin/mmdc
+:docinfo: shared-footer
 
 == Jarosław Pałka
 
@@ -78,9 +79,41 @@ Is there any difference?
 
 === what is hiding in flamegraphs
 
-http://localhost:35729/flamegraphs/pl.symentis.jvm.microbenchmarks.counters.SynchronizedCounterBenchmark.counter-Throughput/flame-cpu-forward.html[synchronized,window=_blank] +
-http://localhost:35729/flamegraphs/pl.symentis.jvm.microbenchmarks.counters.ReentrantReadWriteCounterBenchmark.counter-Throughput/flame-cpu-forward.html[ReentranReadWriteLock,window=_blank] +
-http://localhost:35729/flamegraphs/pl.symentis.jvm.microbenchmarks.counters.AtomicCounterBenchmark.counter-Throughput/flame-cpu-forward.html[AtomicInteger,window=_blank]
+=== synchronized
+
+[,java]
+----
+synchronized(this){
+    i++;
+}
+----
+
+[%interactive,background-iframe="flamegraphs/pl.symentis.jvm.microbenchmarks.counters.SynchronizedCounterBenchmark.counter-Throughput/flame-cpu-forward.html"]
+=== !
+
+=== ReentrantReadWriteLock
+
+[,java]
+----
+var lock = new ReentrantLock();
+lock.lock();
+i++
+lock.unlock();
+----
+
+[%interactive,background-iframe="flamegraphs/pl.symentis.jvm.microbenchmarks.counters.ReentrantReadWriteCounterBenchmark.counter-Throughput/flame-cpu-forward.html"]
+=== !
+
+=== AtomicInteger
+
+[,java]
+----
+var atomic = new AtomicInteger();
+atomic.getAndInc();
+----
+
+[%interactive,background-iframe="flamegraphs/pl.symentis.jvm.microbenchmarks.counters.AtomicCounterBenchmark.counter-Throughput/flame-cpu-forward.html"]
+=== !
 
 === performance?
 
