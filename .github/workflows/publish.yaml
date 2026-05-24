@@ -8,7 +8,7 @@ jobs:
   publish:
     uses: symentispl/presentation-actions/.github/workflows/build-presentation.yml@master
     with:
-      slug: bare-metal-java
+      slug: threads-locks-atomics
     secrets:
       R2_ACCOUNT_ID:        ${{ secrets.R2_ACCOUNT_ID }}
       R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
